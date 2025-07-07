@@ -319,32 +319,32 @@ client.on("interactionCreate", async (interaction) => {
             ephemeral: true,
           });
 
-        case "confirm_send":
-          const webhooks = await interaction.channel.fetchWebhooks();
-          const availableWebhooks = webhooks.filter((webhook) => webhook.token);
+case "confirm_send":
+  const webhooks = await interaction.channel.fetchWebhooks();
+  const availableWebhooks = webhooks.filter(webhook => webhook.token);
 
-          if (availableWebhooks.size === 0) {
-            return await interaction.reply({
-              content: "❌ В этом канале нет доступных вебхуков для отправки.",
-              ephemeral: true,
-            });
-          }
+  if (availableWebhooks.size === 0) {
+    return await interaction.reply({
+      content: "❌ В этом канале нет доступных вебхуков для отправки.",
+      ephemeral: true,
+    });
+  }
 
-          const webhookSelect = new StringSelectMenuBuilder()
-            .setCustomId("select_webhook")
-            .setPlaceholder("Выберите вебхук для отправки")
-            .addOptions(
-              Array.from(availableWebhooks.values()).map((webhook) => ({
-                label: webhook.name,
-                value: `${webhook.id}|${webhook.token}`,
-              })),
-            );
+  const webhookSelect = new StringSelectMenuBuilder()
+    .setCustomId("select_webhook")
+    .setPlaceholder("Выберите вебхук для отправки")
+    .addOptions(
+      availableWebhooks.map((webhook) => ({
+        label: webhook.name,
+        value: `${webhook.id}|${webhook.token}`,
+      }))
+    );
 
-          return await interaction.update({
-            content: "📩 Выберите вебхук для отправки:",
-            embeds: [],
-            components: [new ActionRowBuilder().addComponents(webhookSelect)],
-          });
+  return await interaction.update({
+    content: "📩 Выберите вебхук для отправки:",
+    embeds: [],
+    components: [new ActionRowBuilder().addComponents(webhookSelect)],
+  });
 
         case "back_to_menu":
           const embedCount = session.embeds.length;
