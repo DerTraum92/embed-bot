@@ -27,7 +27,7 @@ const client = new Client({
 
 const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
-// Только одна команда
+// Зарегистрированная команда /embed
 const commands = [
   new SlashCommandBuilder()
     .setName("embed")
@@ -138,7 +138,6 @@ client.on("interactionCreate", async (interaction) => {
   try {
     const userId = interaction.user.id;
 
-    // Slash команда /embed
     if (
       interaction.isChatInputCommand() &&
       interaction.commandName === "embed"
@@ -498,17 +497,3 @@ process.on("unhandledRejection", (error) => {
 
 // Запуск бота
 client.login(process.env.TOKEN);
-
-// Добавление маршрута ping
-app.get("/ping", (req, res) => {
-  res.send("Pong!");
-});
-
-// Встроенный таймер для самопинга
-setInterval(() => {
-  fetch("https://embed-bot--haisarise.repl.co/ping").catch(console.error);
-}, 280000); // каждые 4.6 минуты (Replit засыпает через 5)
-
-app.listen(3000, () => {
-  console.log("Express server is running on port 3000");
-});
