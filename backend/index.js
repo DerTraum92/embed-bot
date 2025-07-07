@@ -138,14 +138,10 @@ client.on("interactionCreate", async (interaction) => {
   try {
     const userId = interaction.user.id;
 
-    // Если пользователь не имеет сессии, создаем новую
-    if (!userSessions.has(userId)) {
-      userSessions.set(userId, { embeds: [], content: "", attachment: "" });
-    }
-
-    const session = userSessions.get(userId);
-
-    if (interaction.isChatInputCommand() && interaction.commandName === "embed") {
+    if (
+      interaction.isChatInputCommand() &&
+      interaction.commandName === "embed"
+    ) {
       // Проверка прав администратора
       if (!interaction.member.permissions.has("Administrator")) {
         return await interaction.reply({
@@ -154,23 +150,31 @@ client.on("interactionCreate", async (interaction) => {
         });
       }
 
+      // Инициализация сессии пользователя
+      if (!userSessions.has(userId)) {
+        userSessions.set(userId, { embeds: [], content: "", attachment: "" });
+      }
+
+      const session = userSessions.get(userId);
       const embedCount = session.embeds.length;
 
-      // Поняли ли мы, был ли уже ответ на это взаимодействие?
-      if (!interaction.replied) {
-        return await interaction.reply({
-          content: `🔧 **Управление embed-сообщением**\n📊 Создано embeds: ${embedCount}`,
-          components: [createMainMenu()],
-          ephemeral: true,
-        });
-      }
+      return await interaction.reply({
+        content: `🔧 **Управление embed-сообщением**\n📊 Создано embeds: ${embedCount}`,
+        components: [createMainMenu()],
+        ephemeral: true,
+      });
     }
 
     // Обработка кнопок
     if (interaction.isButton()) {
+      const session = userSessions.get(userId) || {
+        embeds: [],
+        content: "",
+        attachment: "",
+      };
+
       switch (interaction.customId) {
         case "add_embed":
-          // Логика добавления нового embed
           const modal = new ModalBuilder()
             .setCustomId("embed_modal")
             .setTitle("Создание нового embed");
@@ -208,6 +212,86 @@ client.on("interactionCreate", async (interaction) => {
 
           return await interaction.showModal(modal);
 
+        case "edit_embed":
+          if (session.embeds.length === 0) {
+            return await interaction.reply({
+              content: "❌ Нет embeds для редактирования.",
+              ephemeral: true,
+            });
+          }
+
+          const editSelect = new StringSelectMenuBuilder()
+            .setCustomId("select_edit_embed")
+            .setPlaceholder("Выберите embed для редактирования")
+            .addOptions(
+              session.embeds.map((embed, index) => ({
+                label: embed.data.title || `Embed ${index + 1}`,
+                description: embed.data.description
+                  ? embed.data.description.substring(0, 50) + "..."
+                  : "Без описания",
+                value: index.toString(),
+              })),
+            );
+
+          return await interaction.reply({
+            content: "✏️ Выберите embed для редактирования:",
+            components: [new ActionRowBuilder().addComponents(editSelect)],
+            ephemeral: true,
+          });
+
+        case "delete_embed":
+          if (session.embeds.length === 0) {
+            return await interaction.reply({
+              content: "❌ Нет embeds для удаления.",
+              ephemeral: true,
+            });
+          }
+
+          const deleteSelect = new StringSelectMenuBuilder()
+            .setCustomId("select_delete_embed")
+            .setPlaceholder("Выберите embed для удаления")
+            .addOptions(
+              session.embeds.map((embed, index) => ({
+                label: embed.data.title || `Embed ${index + 1}`,
+                description: embed.data.description
+                  ? embed.data.description.substring(0, 50) + "..."
+                  : "Без описания",
+                value: index.toString(),
+              })),
+            );
+
+          return await interaction.reply({
+            content: "🗑 Выберите embed для удаления:",
+            components: [new ActionRowBuilder().addComponents(deleteSelect)],
+            ephemeral: true,
+          });
+
+        case "set_content":
+          const contentModal = new ModalBuilder()
+            .setCustomId("content_modal")
+            .setTitle("Настройка текста сообщения");
+
+          const contentInput = new TextInputBuilder()
+            .setCustomId("message_content")
+            .setLabel("Обычный текст перед embeds")
+            .setStyle(TextInputStyle.Paragraph)
+            .setRequired(false)
+            .setValue(session.content || "");
+
+          const attachmentInput = new TextInputBuilder()
+            .setCustomId("message_attachment")
+            .setLabel("Ссылка на вложение (изображение)")
+            .setStyle(TextInputStyle.Short)
+            .setRequired(false)
+            .setValue(session.attachment || "");
+
+          contentModal.addComponents(
+            new ActionRowBuilder().addComponents(contentInput),
+            new ActionRowBuilder().addComponents(attachmentInput),
+          );
+
+          return await interaction.showModal(contentModal);
+
         case "preview_send":
           if (session.embeds.length === 0 && !session.content) {
             return await interaction.reply({
@@ -228,59 +312,177 @@ client.on("interactionCreate", async (interaction) => {
               .setStyle(ButtonStyle.Secondary),
           );
 
-          // Проверка, был ли уже ответ на это взаимодействие
-          if (!interaction.replied) {
-            return await interaction.reply({
-              content: `📦 **Предпросмотр сообщения:**\n📝 Текст: ${session.content || "_не задан_"}\n🖼 Вложение: ${session.attachment || "_не задано_"}\n📊 Embeds: ${session.embeds.length}`,
-              embeds: session.embeds,
-              components: [previewButtons],
-              ephemeral: true,
-            });
-          }
-          break;
+          return await interaction.reply({
+            content: `📦 **Предпросмотр сообщения:**\n📝 Текст: ${session.content || "_не задан_"}\n🖼 Вложение: ${session.attachment || "_не задано_"}\n📊 Embeds: ${session.embeds.length}`,
+            embeds: session.embeds,
+            components: [previewButtons],
+            ephemeral: true,
+          });
 
-        case "confirm_send":
-          const webhooks = await interaction.channel.fetchWebhooks();
-          const availableWebhooks = webhooks.filter(webhook => webhook.token);
+case "confirm_send":
+  const webhooks = await interaction.channel.fetchWebhooks();
+  const availableWebhooks = webhooks.filter(webhook => webhook.token);
 
-          if (availableWebhooks.size === 0) {
-            // Создание вебхука, если его нет
-            const channel = interaction.channel;
-            const newWebhook = await channel.createWebhook({
-              name: "Embed Bot Webhook",
-              avatar: client.user.avatarURL(),
-            });
+  if (availableWebhooks.size === 0) {
+    return await interaction.reply({
+      content: "❌ В этом канале нет доступных вебхуков для отправки.",
+      ephemeral: true,
+    });
+  }
 
-            logAdmin(`Создан новый вебхук для канала ${channel.name}`);
+  const webhookSelect = new StringSelectMenuBuilder()
+    .setCustomId("select_webhook")
+    .setPlaceholder("Выберите вебхук для отправки")
+    .addOptions(
+      availableWebhooks.map((webhook) => ({
+        label: webhook.name,
+        value: `${webhook.id}|${webhook.token}`,
+      }))
+    );
 
-            const webhook = new WebhookClient({
-              id: newWebhook.id,
-              token: newWebhook.token,
-            });
+  return await interaction.update({
+    content: "📩 Выберите вебхук для отправки:",
+    embeds: [],
+    components: [new ActionRowBuilder().addComponents(webhookSelect)],
+  });
 
-            await sendEmbedMessage(webhook, session);
-          } else {
-            const webhook = availableWebhooks.first();
-            await sendEmbedMessage(webhook, session);
-          }
+        case "back_to_menu":
+          const embedCount = session.embeds.length;
+          return await interaction.update({
+            content: `🔧 **Управление embed-сообщением**\n📊 Создано embeds: ${embedCount}`,
+            embeds: [],
+            components: [createMainMenu()],
+          });
+      }
+    }
+
+    // Обработка модальных окон
+    if (interaction.isModalSubmit()) {
+      const session = userSessions.get(userId) || {
+        embeds: [],
+        content: "",
+        attachment: "",
+      };
+
+      if (interaction.customId === "embed_modal") {
+        const title = interaction.fields.getTextInputValue("embed_title");
+        const description =
+          interaction.fields.getTextInputValue("embed_description");
+        const color = interaction.fields.getTextInputValue("embed_color");
+        const image = interaction.fields.getTextInputValue("embed_image");
+
+        const newEmbed = new EmbedBuilder();
+
+        if (title) newEmbed.setTitle(title);
+        if (description) newEmbed.setDescription(description);
+        try {
+          newEmbed.setColor(color);
+        } catch (error) {
+          console.log("Неверный формат цвета:", color);
+        }
+        if (image) newEmbed.setImage(image);
+
+        session.embeds.push(newEmbed);
+        userSessions.set(userId, session);
+        saveSessions();
+
+        const embedCount = session.embeds.length;
+        return await interaction.reply({
+          content: `✅ Embed добавлен! Всего embeds: ${embedCount}`,
+          ephemeral: true,
+        });
+      }
+
+      if (interaction.customId === "content_modal") {
+        const content = interaction.fields.getTextInputValue("message_content");
+        const attachment =
+          interaction.fields.getTextInputValue("message_attachment");
+
+        session.content = content;
+        session.attachment = attachment;
+        userSessions.set(userId, session);
+        saveSessions();
+
+        return await interaction.reply({
+          content: "✅ Текст сообщения и вложение обновлены!",
+          ephemeral: true,
+        });
+      }
+    }
+
+    if (interaction.isStringSelectMenu()) {
+      const session = userSessions.get(userId) || {
+        embeds: [],
+        content: "",
+        attachment: "",
+      };
+
+      if (interaction.customId === "select_delete_embed") {
+        const indexToDelete = parseInt(interaction.values[0]);
+        session.embeds.splice(indexToDelete, 1);
+        userSessions.set(userId, session);
+        saveSessions();
+
+        return await interaction.reply({
+          content: `✅ Embed удален! Осталось embeds: ${session.embeds.length}`,
+          ephemeral: true,
+        });
+      }
+
+      if (interaction.customId === "select_webhook") {
+        const [webhookId, webhookToken] = interaction.values[0].split("|");
+        const webhook = new WebhookClient({
+          id: webhookId,
+          token: webhookToken,
+        });
+
+        const files = [];
+        if (session.attachment && session.attachment.startsWith("http")) {
+          files.push(session.attachment);
+        }
+
+        try {
+          await webhook.send({
+            content: session.content || undefined,
+            embeds: session.embeds,
+            files: files.length > 0 ? files : undefined,
+          });
+
+          logAdmin(
+            `Пользователь ${interaction.user.tag} отправил embed через вебхук`,
+          );
 
           // Очистка сессии после отправки
           userSessions.delete(userId);
           saveSessions();
 
-          // Проверка, был ли уже ответ на это взаимодействие
-          if (!interaction.replied) {
-            return await interaction.update({
-              content: "✅ Сообщение успешно отправлено!",
-              embeds: [],
-              components: [],
-            });
-          }
-          break;
+          return await interaction.update({
+            content: "✅ Сообщение успешно отправлено!",
+            embeds: [],
+            components: [],
+          });
+        } catch (error) {
+          console.error("Ошибка отправки через вебхук:", error);
+          return await interaction.reply({
+            content: "❌ Ошибка при отправке сообщения.",
+            ephemeral: true,
+          });
+        }
       }
     }
   } catch (error) {
     console.error("Ошибка обработки взаимодействия:", error);
+
+    if (!interaction.replied && !interaction.deferred) {
+      try {
+        await interaction.reply({
+          content: "❌ Произошла ошибка при обработке команды.",
+          ephemeral: true,
+        });
+      } catch (replyError) {
+        console.error("Ошибка отправки ответа об ошибке:", replyError);
+      }
+    }
   }
 });
 
