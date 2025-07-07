@@ -138,10 +138,14 @@ client.on("interactionCreate", async (interaction) => {
   try {
     const userId = interaction.user.id;
 
-    if (
-      interaction.isChatInputCommand() &&
-      interaction.commandName === "embed"
-    ) {
+    // Если пользователь не имеет сессии, создаем новую
+    if (!userSessions.has(userId)) {
+      userSessions.set(userId, { embeds: [], content: "", attachment: "" });
+    }
+
+    const session = userSessions.get(userId);
+
+    if (interaction.isChatInputCommand() && interaction.commandName === "embed") {
       // Проверка прав администратора
       if (!interaction.member.permissions.has("Administrator")) {
         return await interaction.reply({
@@ -150,30 +154,60 @@ client.on("interactionCreate", async (interaction) => {
         });
       }
 
-      // Инициализация сессии пользователя
-      if (!userSessions.has(userId)) {
-        userSessions.set(userId, { embeds: [], content: "", attachment: "" });
-      }
-
-      const session = userSessions.get(userId);
       const embedCount = session.embeds.length;
 
-      return await interaction.reply({
-        content: `🔧 **Управление embed-сообщением**\n📊 Создано embeds: ${embedCount}`,
-        components: [createMainMenu()],
-        ephemeral: true,
-      });
+      // Поняли ли мы, был ли уже ответ на это взаимодействие?
+      if (!interaction.replied) {
+        return await interaction.reply({
+          content: `🔧 **Управление embed-сообщением**\n📊 Создано embeds: ${embedCount}`,
+          components: [createMainMenu()],
+          ephemeral: true,
+        });
+      }
     }
 
     // Обработка кнопок
     if (interaction.isButton()) {
-      const session = userSessions.get(userId) || {
-        embeds: [],
-        content: "",
-        attachment: "",
-      };
-
       switch (interaction.customId) {
+        case "add_embed":
+          // Логика добавления нового embed
+          const modal = new ModalBuilder()
+            .setCustomId("embed_modal")
+            .setTitle("Создание нового embed");
+
+          const titleInput = new TextInputBuilder()
+            .setCustomId("embed_title")
+            .setLabel("Заголовок embed")
+            .setStyle(TextInputStyle.Short)
+            .setRequired(false);
+
+          const descInput = new TextInputBuilder()
+            .setCustomId("embed_description")
+            .setLabel("Описание embed")
+            .setStyle(TextInputStyle.Paragraph)
+            .setRequired(false);
+
+          const colorInput = new TextInputBuilder()
+            .setCustomId("embed_color")
+            .setLabel("Цвет (hex, например #ff0000)")
+            .setStyle(TextInputStyle.Short)
+            .setRequired(false);
+
+          const imageInput = new TextInputBuilder()
+            .setCustomId("embed_image")
+            .setLabel("Ссылка на изображение")
+            .setStyle(TextInputStyle.Short)
+            .setRequired(false);
+
+          modal.addComponents(
+            new ActionRowBuilder().addComponents(titleInput),
+            new ActionRowBuilder().addComponents(descInput),
+            new ActionRowBuilder().addComponents(colorInput),
+            new ActionRowBuilder().addComponents(imageInput),
+          );
+
+          return await interaction.showModal(modal);
+
         case "preview_send":
           if (session.embeds.length === 0 && !session.content) {
             return await interaction.reply({
@@ -194,12 +228,16 @@ client.on("interactionCreate", async (interaction) => {
               .setStyle(ButtonStyle.Secondary),
           );
 
-          return await interaction.reply({
-            content: `📦 **Предпросмотр сообщения:**\n📝 Текст: ${session.content || "_не задан_"}\n🖼 Вложение: ${session.attachment || "_не задано_"}\n📊 Embeds: ${session.embeds.length}`,
-            embeds: session.embeds,
-            components: [previewButtons],
-            ephemeral: true,
-          });
+          // Проверка, был ли уже ответ на это взаимодействие
+          if (!interaction.replied) {
+            return await interaction.reply({
+              content: `📦 **Предпросмотр сообщения:**\n📝 Текст: ${session.content || "_не задан_"}\n🖼 Вложение: ${session.attachment || "_не задано_"}\n📊 Embeds: ${session.embeds.length}`,
+              embeds: session.embeds,
+              components: [previewButtons],
+              ephemeral: true,
+            });
+          }
+          break;
 
         case "confirm_send":
           const webhooks = await interaction.channel.fetchWebhooks();
@@ -215,7 +253,6 @@ client.on("interactionCreate", async (interaction) => {
 
             logAdmin(`Создан новый вебхук для канала ${channel.name}`);
 
-            // Используем новый вебхук для отправки
             const webhook = new WebhookClient({
               id: newWebhook.id,
               token: newWebhook.token,
@@ -231,36 +268,15 @@ client.on("interactionCreate", async (interaction) => {
           userSessions.delete(userId);
           saveSessions();
 
-          return await interaction.update({
-            content: "✅ Сообщение успешно отправлено!",
-            embeds: [],
-            components: [],
-          });
-      }
-    }
-
-    async function sendEmbedMessage(webhook, session) {
-      const files = [];
-      if (session.attachment && session.attachment.startsWith("http")) {
-        files.push(session.attachment);
-      }
-
-      try {
-        await webhook.send({
-          content: session.content || undefined,
-          embeds: session.embeds,
-          files: files.length > 0 ? files : undefined,
-        });
-
-        logAdmin(
-          `Пользователь ${interaction.user.tag} отправил embed через вебхук`
-        );
-      } catch (error) {
-        console.error("Ошибка отправки через вебхук:", error);
-        await interaction.reply({
-          content: "❌ Ошибка при отправке сообщения.",
-          ephemeral: true,
-        });
+          // Проверка, был ли уже ответ на это взаимодействие
+          if (!interaction.replied) {
+            return await interaction.update({
+              content: "✅ Сообщение успешно отправлено!",
+              embeds: [],
+              components: [],
+            });
+          }
+          break;
       }
     }
   } catch (error) {
